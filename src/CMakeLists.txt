@@ -1,1 +1,1 @@
-add_library(eipc STATIC bus.cpp)
+add_library(eipc STATIC endpoint.cpp)

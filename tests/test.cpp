@@ -1,35 +1,27 @@
 #include <gtest/gtest.h>
 
 #include <eipc.hpp>
+#include <thread>
 
 TEST(ConnectionTests, ConstructionTest) {
-    eipc::bus bus("test");
+    eipc::endpoint endpoint("/test");
 
-    ASSERT_EQ(bus.init(), true);
+    ASSERT_EQ(endpoint.init(), true);
 }
 
-TEST(ConnectionTests, SharingTest) {
-    eipc::bus bus_a("test");
-    eipc::bus bus_b("test");
-    eipc::bus bus_c("test");
+TEST(ConnectionTests, SendTest) {
+    eipc::endpoint endpoint_a("/test");
+    eipc::endpoint endpoint_b("/test");
 
-    ASSERT_EQ(bus_a.init(), true);
-    ASSERT_EQ(bus_b.init(), true);
-    ASSERT_EQ(bus_c.init(), true);
-}
+    ASSERT_EQ(endpoint_a.init(), true);
+    ASSERT_EQ(endpoint_b.init(), true);
 
-TEST(ConnectionTests, HangingTest) {
-    eipc::bus bus_a("test");
-    eipc::bus bus_c("test");
-    eipc::bus bus_d("test");
+    endpoint_b.send(0, 7765).valid();
 
-    {
-        eipc::bus bus_b("test");
+    std::this_thread::yield();
 
-        ASSERT_EQ(bus_a.init(), true);
-        ASSERT_EQ(bus_b.init(), true);
-        ASSERT_EQ(bus_c.init(), true);
-    }
+    eipc::request req;
 
-    ASSERT_EQ(bus_d.init(), true);
+    ASSERT_TRUE(endpoint_a.poll(req));
+    ASSERT_EQ(req.get<int>(), 7765);
 }
