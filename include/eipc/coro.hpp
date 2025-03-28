@@ -6,9 +6,23 @@
 namespace eipc {
     template <typename T>
     struct coro {
+        struct final_awaiter {
+            bool await_ready() noexcept {
+                return false;
+            }
+
+            template <typename U>
+            auto await_suspend(std::coroutine_handle<U> caller) noexcept {
+                return caller.promise().next;
+            }
+
+            void await_resume() noexcept {}
+        };
+
         struct promise_type {
             T                       value;
-            std::coroutine_handle<> chained;
+            std::coroutine_handle<> next;
+            bool                    done = false;
 
             coro<T> get_return_object() {
                 return {std::coroutine_handle<promise_type>::from_promise(*this)};
@@ -18,52 +32,51 @@ namespace eipc {
                 return {};
             }
 
-            std::suspend_always final_suspend() noexcept {
-                if (chained)
-                    chained.resume();
-
+            final_awaiter final_suspend() noexcept {
+                this->done = true;
                 return {};
             }
 
-            void return_value(T v) {
+            void return_value(T v) noexcept {
                 value = std::move(v);
             }
 
-            void unhandled_exception() {}
+            void unhandled_exception() noexcept {}
         };
 
         struct awaiter {
-            coro<T>& _coro;
+            std::coroutine_handle<promise_type> handle;
 
-            bool await_ready() {
-                return false;
+            bool await_ready() noexcept {
+                return this->handle.promise().done;
             }
 
             template <typename U>
-            void await_suspend(std::coroutine_handle<U> caller) {
-                _coro.handle.promise().chained = caller;
-                _coro.handle.resume();
+            auto await_suspend(std::coroutine_handle<U> caller) noexcept {
+                this->handle.promise().next = caller;
+                return this->handle;
             }
 
-            T await_resume() {
-                return std::move(_coro.handle.promise().value);
+            T await_resume() noexcept {
+                return std::move(this->handle.promise().value);
             }
         };
 
         std::coroutine_handle<promise_type> handle;
 
         coro(std::coroutine_handle<promise_type> h) : handle(h) {}
+
         ~coro() {
-            if (handle)
-                handle.destroy();
+            if (this->handle)
+                this->handle.destroy();
         }
 
         T get_value() {
-            return std::move(handle.promise().value);
+            return std::move(this->handle.promise().value);
         }
 
         auto operator co_await() {
-            return awaiter{*this};
+            return awaiter{this->handle};
         }
     };
 }
