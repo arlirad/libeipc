@@ -71,6 +71,11 @@ namespace eipc {
                 this->handle.destroy();
         }
 
+        void resume() {
+            if (handle && !handle.done())
+                handle.resume();
+        }
+
         T get_value() {
             return std::move(this->handle.promise().value);
         }

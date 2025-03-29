@@ -77,7 +77,7 @@ TEST(ConnectionTests, HandleTest) {
     ASSERT_TRUE(endpoint_b.try_receive());
 
     auto request_coro = endpoint_a.request_async(TEST_FUNCTION, 52);
-    request_coro.handle.resume();
+    request_coro.resume();
 
     ASSERT_TRUE(endpoint_b.try_receive());
     ASSERT_TRUE(endpoint_a.try_receive());

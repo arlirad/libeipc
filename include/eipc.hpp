@@ -37,9 +37,17 @@ namespace eipc {
         frame          raw_frame;
         request_inner* inner;
 
+        int function() {
+            return raw_frame.function;
+        }
+
         template <typename T>
         T get() {
             return *reinterpret_cast<T*>(this->raw_frame.data);
+        }
+
+        bool operator==(const request& other) {
+            return memcmp(this, &other, sizeof(request)) == 0;
         }
     };
 
@@ -81,12 +89,36 @@ namespace eipc {
 
         template <typename T>
         coro<response> request_async(int function, const T& data) {
-            auto result = co_await request_async(function, reinterpret_cast<const char*>(&data),
-                                                 sizeof(data));
+            const char* ptr    = reinterpret_cast<const char*>(&data);
+            auto        result = co_await request_async(function, ptr, sizeof(data));
+
             co_return result;
         }
 
+        coro<response> request_async(int function, const char* data, size_t len);
+
+        coro<std::optional<request>> recv_request();
+        void                         respond(request&, response&);
+
         private:
+        struct await_handle {
+            std::coroutine_handle<> chained;
+
+            await_handle() {}
+
+            bool await_ready() {
+                // return _owner.response.has_value();
+                return false;
+            }
+
+            template <typename U>
+            void await_suspend(std::coroutine_handle<U> caller) {
+                this->chained = caller;
+            }
+
+            void await_resume() {}
+        };
+
         int                                   _pid           = 0;
         uint32_t                              _seq           = 0;
         std::function<response(request&)>     _handlers[256] = {};
@@ -94,11 +126,12 @@ namespace eipc {
         std::string                           _path;
         std::string                           _remote_path;
         std::vector<std::shared_ptr<pending>> _pending;
+        std::vector<request>                  _requests;
+        await_handle                          _request_received;
 
-        coro<response> request_async(int function, const char* data, size_t len);
-        int            put(frame& fr);
-        void           handle_request(frame& fr);
-        void           received_response(frame& fr);
+        int  put(frame& fr);
+        void handle_request(frame& fr);
+        void received_response(frame& fr);
     };
 
     std::string get_root();

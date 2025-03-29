@@ -128,10 +128,33 @@ namespace eipc {
         co_return response(result.value());
     }
 
+    coro<std::optional<request>> endpoint::recv_request() {
+        while (_requests.size() == 0)
+            co_await this->_request_received;
+
+        auto req = this->_requests.front();
+
+        // TODO: probably can be turned into a simple variable, I need to think about possible
+        // scenarios more
+        this->_requests.erase(std::remove(this->_requests.begin(), this->_requests.end(), req),
+                              this->_requests.end());
+
+        co_return req;
+    }
+
+    void endpoint::respond(request& req, response& res) {
+        res.raw_frame.function = req.raw_frame.function;
+        res.raw_frame.pid      = this->_pid;
+        res.raw_frame.seq      = req.raw_frame.seq;
+        res.raw_frame.flags    = FLAG_REP;
+
+        this->put(res.raw_frame);
+    }
+
     int endpoint::put(frame& fr) {
-        return sendto(this->_inner->socket, &fr, HEADER_OVERHEAD + fr.len, 0,
-                      reinterpret_cast<sockaddr*>(&this->_inner->remote_addr),
-                      this->_inner->remote_len);
+        return ::sendto(this->_inner->socket, &fr, HEADER_OVERHEAD + fr.len, 0,
+                        reinterpret_cast<sockaddr*>(&this->_inner->remote_addr),
+                        this->_inner->remote_len);
     }
 
     void endpoint::handle_request(frame& fr) {
@@ -139,14 +162,20 @@ namespace eipc {
 
         req.raw_frame = fr;
 
-        response res = this->_handlers[fr.function % 256](req);
+        auto handler = this->_handlers[fr.function % 256];
 
-        res.raw_frame.function = fr.function;
-        res.raw_frame.pid      = this->_pid;
-        res.raw_frame.seq      = fr.seq;
-        res.raw_frame.flags    = FLAG_REP;
+        if (!handler) {
+            this->_requests.push_back(req);
 
-        this->put(res.raw_frame);
+            if (_request_received.chained && !_request_received.chained.done())
+                _request_received.chained.resume();
+
+            return;
+        }
+
+        response res = handler(req);
+
+        this->respond(req, res);
     }
 
     void endpoint::received_response(frame& fr) {
@@ -156,8 +185,12 @@ namespace eipc {
 
             p->response = fr;
 
-            if (p->handle.chained)
-                p->handle.chained.resume();
+            if (p->handle.chained) {
+                if (!p->handle.chained.done())
+                    p->handle.chained.resume();
+
+                p->handle.chained = nullptr;
+            }
 
             this->_pending.erase(std::remove(this->_pending.begin(), this->_pending.end(), p),
                                  this->_pending.end());
