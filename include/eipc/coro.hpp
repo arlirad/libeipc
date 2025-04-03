@@ -12,8 +12,9 @@ namespace eipc {
             }
 
             template <typename U>
-            auto await_suspend(std::coroutine_handle<U> caller) noexcept {
-                return caller.promise().next;
+            void await_suspend(std::coroutine_handle<U> caller) noexcept {
+                if (caller.promise().next)
+                    caller.promise().next.resume();
             }
 
             void await_resume() noexcept {}
